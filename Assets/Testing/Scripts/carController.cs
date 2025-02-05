@@ -5,22 +5,25 @@ using UnityEngine.InputSystem;
 
 public class carController : MonoBehaviour
 {
-    [SerializeField] private Rigidbody sphereRB;
+    [SerializeField] private Rigidbody sphereRB, carRB;
     [SerializeField] private LayerMask groundLayer;
-    [SerializeField] private Transform cube;
-    [SerializeField] private float fwdSpeed, revSpeed, turnSpeed, airDrag, groundDrag, maxSpeed;
-    private float moveInput, turnInput;
-    //private PlayerInput playerInput;
+    [SerializeField] private float fwdSpeed, revSpeed, turnSpeed, airDrag, groundDrag, 
+    alignToGroundTime;
+    [SerializeField] private float accelerationRate = 5f;
+    [SerializeField] private float decelerationRate = 10f;
+    private float moveInput, turnInput, currentSpeed = 0f;
     private bool isCarGrounded, isDrifting;
     IA_Player inputActions;
     
     void Start()
     {
         sphereRB.transform.parent = null;
-        //playerInput = GetComponent<PlayerInput>();
+        carRB.transform.parent = null;
 
         inputActions = new IA_Player();
         inputActions.Player.Movement.Enable();
+        inputActions.Player.Drift.started += Drift;
+        isDrifting = false;
     }
 
     private void Update(){
@@ -28,31 +31,43 @@ public class carController : MonoBehaviour
         Vector2 inputValue = inputActions.Player.Movement.ReadValue<Vector2>();
         moveInput = inputValue.y;
         turnInput = inputValue.x;
-        moveInput *= moveInput > 0 ? fwdSpeed : revSpeed;
-        transform.position = sphereRB.transform.position;
-        float newRotation = turnInput * turnSpeed * Time.deltaTime * inputValue.y;
-        transform.Rotate(0, newRotation, 0, Space.World);
 
-        RaycastHit hit;
-        isCarGrounded = Physics.Raycast(transform.position, -transform.up, out hit, 1f, groundLayer);
+        Debug.Log("MoveInput: " + moveInput + " | TurnInput: " + turnInput);
 
-        transform.rotation = Quaternion.FromToRotation(transform.up, hit.normal) * transform.rotation;
-
-        if (isCarGrounded)
+        float targetSpeed = moveInput > 0 ? fwdSpeed : (moveInput < 0 ? -revSpeed : 0);
+        
+        if (moveInput != 0)
         {
-            sphereRB.linearDamping = groundDrag;
-            inputActions.Player.Drift.started += Drift;
-            inputActions.Player.Drift.performed += Drift;
-            inputActions.Player.Drift.canceled += Drift;
-            inputActions.Player.Drift.Enable();
+            currentSpeed = Mathf.Lerp(currentSpeed, targetSpeed, Time.deltaTime * accelerationRate);
         }
         else
         {
-            sphereRB.linearDamping = airDrag;
-            inputActions.Player.Drift.started += Drift;
-            inputActions.Player.Drift.performed += Drift;
-            inputActions.Player.Drift.canceled += Drift;            
-            inputActions.Player.Drift.Disable();
+            currentSpeed = Mathf.Lerp(currentSpeed, 0, Time.deltaTime * decelerationRate);
+        }
+
+        transform.position = sphereRB.transform.position - new Vector3(0, 0.01f, 0);
+        float newRotation = turnInput * turnSpeed * Time.deltaTime * inputValue.y;
+
+        RaycastHit hit;
+        isCarGrounded = Physics.Raycast(transform.position, -transform.up, out hit, 2f, groundLayer);
+
+        if(isCarGrounded)
+        {   
+            transform.Rotate(0, newRotation, 0, Space.World);
+            Debug.DrawLine(sphereRB.position, hit.point, Color.red);
+            Debug.Log("Hit Point: " + hit.point);
+        }
+        else
+        {
+            Debug.DrawLine(sphereRB.position, hit.point, Color.green);
+        }
+
+        Quaternion toRotateTo = Quaternion.FromToRotation(transform.up, hit.normal) * transform.rotation;
+        transform.rotation = Quaternion.Slerp(transform.rotation, toRotateTo, alignToGroundTime * Time.deltaTime);
+
+        if (isDrifting)
+        {
+            
         }
     }
 
@@ -60,35 +75,34 @@ public class carController : MonoBehaviour
     {
         if (isCarGrounded)
         {
-            sphereRB.AddForce(transform.forward * moveInput, ForceMode.Acceleration);
+            inputActions.Player.Drift.Enable();
+            sphereRB.AddForce(transform.forward * currentSpeed, ForceMode.Acceleration);
+            sphereRB.linearDamping = groundDrag;  
         }
         else
         {
             sphereRB.AddForce(transform.up * -30f);
-        }
+            sphereRB.linearDamping = airDrag;            
+            inputActions.Player.Drift.Disable();
+        }  
+
+        carRB.MoveRotation(transform.rotation);
     }
-    private void Drift(InputAction.CallbackContext context){
-        if (context.phase == InputActionPhase.Started)
+
+    private void Drift(InputAction.CallbackContext context)
+    {
+        
+        if(context.phase == InputActionPhase.Started)
         {
-            Debug.Log("Drift started");
             isDrifting = true;
-
-            float driftAngle = turnInput > 0 ? 35 : -35;
-            Quaternion driftRotation = Quaternion.Euler(0, driftAngle, 0);
-            cube.rotation = cube.rotation * driftRotation;
+            float angle = turnInput > 0 ? 45 : -45;
+            Quaternion driftRotation = Quaternion.Euler(0, angle, 0);
+            //transform.rotation = Quaternion.Lerp(transform.rotation, driftRotation, Time.deltaTime * 0.1f);
+            transform.rotation = transform.rotation * driftRotation;
         }
-        //else if (context.phase == InputActionPhase.Performed)
-        //{
-        //    Debug.Log("Drifting in progress");
-        //}
-        else if (context.phase == InputActionPhase.Canceled)
+        else if(context.phase == InputActionPhase.Canceled)
         {
-            Debug.Log("Drift canceled");
             isDrifting = false;
-
-            //float driftAngle = turnInput > 0 ? -35 : 35;
-            //Quaternion driftRotation = Quaternion.Euler(0, driftAngle, 0);
-            //cube.rotation = cube.rotation * driftRotation;
         }
     }
 }
